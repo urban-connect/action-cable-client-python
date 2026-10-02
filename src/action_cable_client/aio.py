@@ -6,14 +6,13 @@ from contextlib import asynccontextmanager
 import websockets
 
 from action_cable_client import protocol
-from action_cable_client.protocol import Event, Identifier, Ping
+from action_cable_client.protocol import Event, Identifier, Ping, PingTimeout
 
 # asyncio transport. One Connection wraps one websocket; reconnecting is the
 # caller's job (open a new connection and subscribe again).
 
 
-class PingTimeout(TimeoutError):
-  pass
+BUFFERED_READ_SECONDS = 0.01
 
 
 class Connection:
@@ -48,11 +47,16 @@ class Connection:
     else:
       remaining = self.ping_deadline - (time.monotonic() - self.last_ping_at)
 
+      # Past the deadline we still read what has already arrived: a caller
+      # that was busy for a while must not make a pinging server look dead.
+      # wait_for needs a positive timeout to let recv() run at all.
       try:
-        raw = await asyncio.wait_for(self.websocket.recv(), timeout=max(remaining, 0))
+        raw = await asyncio.wait_for(
+          self.websocket.recv(), timeout=max(remaining, BUFFERED_READ_SECONDS)
+        )
       except asyncio.TimeoutError:
         raise PingTimeout(
-          f"no ping from server for {int(self.ping_deadline)} seconds"
+          f"no ping from server for {self.ping_deadline:g} seconds"
         ) from None
 
     event = protocol.decode(raw)
@@ -80,7 +84,11 @@ async def connect(
   **kwargs,
 ) -> AsyncIterator[Connection]:
   """Open a connection. Extra keyword arguments go to `websockets.connect`."""
+  offered = kwargs.setdefault("subprotocols", [protocol.SUBPROTOCOL])
+
   async with websockets.connect(
     protocol.authenticated_url(url, token), **kwargs
   ) as websocket:
+    protocol.check_subprotocol(websocket, offered)
+
     yield Connection(websocket, ping_deadline=ping_deadline)

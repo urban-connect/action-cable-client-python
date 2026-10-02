@@ -5,15 +5,11 @@ from contextlib import contextmanager
 from websockets.sync.client import connect as websocket_connect
 
 from action_cable_client import protocol
-from action_cable_client.protocol import Event, Identifier, Ping
+from action_cable_client.protocol import Event, Identifier, Ping, PingTimeout
 
 # Blocking transport for threaded programs. One Connection wraps one
 # websocket; reconnecting is the caller's job (open a new connection and
 # subscribe again).
-
-
-class PingTimeout(TimeoutError):
-  pass
 
 
 class Connection:
@@ -46,21 +42,24 @@ class Connection:
     when it is closed.
     """
     wait = timeout
+    expires = False
 
     if self.ping_deadline is not None:
       remaining = self.ping_deadline - (time.monotonic() - self.last_ping_at)
 
-      if remaining <= 0:
-        raise PingTimeout(f"no ping from server for {int(self.ping_deadline)} seconds")
-
-      wait = remaining if timeout is None else min(timeout, remaining)
+      # Past the deadline we still read what has already arrived (a zero
+      # timeout only looks at the buffer): a caller that was busy for a while
+      # must not make a pinging server look dead.
+      remaining = max(remaining, 0)
+      expires = timeout is None or remaining <= timeout
+      wait = remaining if expires else timeout
 
     try:
       raw = self.websocket.recv(timeout=wait)
     except TimeoutError:
-      if timeout is None or wait < timeout:
+      if expires:
         raise PingTimeout(
-          f"no ping from server for {int(self.ping_deadline or 0)} seconds"
+          f"no ping from server for {self.ping_deadline:g} seconds"
         ) from None
 
       return None
@@ -81,5 +80,9 @@ def connect(
   **kwargs,
 ) -> Iterator[Connection]:
   """Open a connection. Extra keyword arguments go to `websockets.sync.client.connect`."""
+  offered = kwargs.setdefault("subprotocols", [protocol.SUBPROTOCOL])
+
   with websocket_connect(protocol.authenticated_url(url, token), **kwargs) as websocket:
+    protocol.check_subprotocol(websocket, offered)
+
     yield Connection(websocket, ping_deadline=ping_deadline)

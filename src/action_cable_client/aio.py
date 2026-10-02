@@ -6,14 +6,10 @@ from contextlib import asynccontextmanager
 import websockets
 
 from action_cable_client import protocol
-from action_cable_client.protocol import Event, Identifier, Ping
+from action_cable_client.protocol import Event, Identifier, Ping, PingTimeout
 
 # asyncio transport. One Connection wraps one websocket; reconnecting is the
 # caller's job (open a new connection and subscribe again).
-
-
-class PingTimeout(TimeoutError):
-  pass
 
 
 class Connection:
@@ -80,6 +76,8 @@ async def connect(
   **kwargs,
 ) -> AsyncIterator[Connection]:
   """Open a connection. Extra keyword arguments go to `websockets.connect`."""
+  kwargs.setdefault("subprotocols", [protocol.SUBPROTOCOL])
+
   async with websockets.connect(
     protocol.authenticated_url(url, token), **kwargs
   ) as websocket:

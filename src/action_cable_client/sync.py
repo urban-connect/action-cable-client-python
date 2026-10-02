@@ -5,15 +5,11 @@ from contextlib import contextmanager
 from websockets.sync.client import connect as websocket_connect
 
 from action_cable_client import protocol
-from action_cable_client.protocol import Event, Identifier, Ping
+from action_cable_client.protocol import Event, Identifier, Ping, PingTimeout
 
 # Blocking transport for threaded programs. One Connection wraps one
 # websocket; reconnecting is the caller's job (open a new connection and
 # subscribe again).
-
-
-class PingTimeout(TimeoutError):
-  pass
 
 
 class Connection:
@@ -81,5 +77,7 @@ def connect(
   **kwargs,
 ) -> Iterator[Connection]:
   """Open a connection. Extra keyword arguments go to `websockets.sync.client.connect`."""
+  kwargs.setdefault("subprotocols", [protocol.SUBPROTOCOL])
+
   with websocket_connect(protocol.authenticated_url(url, token), **kwargs) as websocket:
     yield Connection(websocket, ping_deadline=ping_deadline)

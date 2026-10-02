@@ -33,6 +33,15 @@ async def test_connects_with_token(cable):
   assert cable.requests.get(timeout=5) == "/cable?token=secret"
 
 
+async def test_offers_the_action_cable_subprotocol(cable):
+  async with aio.connect(cable.url) as connection:
+    await connection.receive()
+
+    assert connection.websocket.subprotocol == "actioncable-v1-json"
+
+  assert cable.subprotocols.get(timeout=5) == "actioncable-v1-json"
+
+
 async def test_subscription_is_confirmed(cable):
   async with aio.connect(cable.url) as connection:
     await connection.receive()

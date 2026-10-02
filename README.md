@@ -16,7 +16,7 @@ Requires Python 3.10 or newer. Install it from git, pinned to a tag:
 
 ```toml
 dependencies = [
-    "action-cable-client @ git+https://github.com/urban-connect/action-cable-client-python.git@v0.1.0",
+    "action-cable-client @ git+https://github.com/urban-connect/action-cable-client-python.git@v0.1.1",
 ]
 ```
 
@@ -64,8 +64,10 @@ An `Identifier` is a channel name plus the params of the subscription. `perform(
 
 How a connection is authenticated is up to the server. Two common ways are supported:
 
-- `connect(url, token="...")` appends the token to the URL as the `token` query parameter.
-- Any other keyword argument is passed to the underlying `websockets` connect call, so headers go in as `additional_headers={"Authorization": "Bearer ..."}`.
+- Any extra keyword argument is passed to the underlying `websockets` connect call, so headers go in as `additional_headers={"Authorization": "Bearer ..."}`. Prefer this where the server accepts it.
+- `connect(url, token="...")` appends the token, URL-encoded, as the `token` query parameter. A token in the URL ends up in the access logs of the server and of every proxy on the way, and in the debug logs of `websockets`, so treat those logs as sensitive.
+
+Always connect over `wss://`. Over plain `ws://` the token and every message travel unencrypted.
 
 ## Events
 
@@ -83,9 +85,17 @@ How a connection is authenticated is up to the server. Two common ways are suppo
 
 Identifiers compare by content, so the identifier of an incoming `Message` can be compared with, or used as a dictionary key next to, the one used to subscribe.
 
+A server that refuses a connection answers with `Disconnect` before closing the socket. When its `reconnect` is false (for example `reason="unauthorized"`), retrying with the same credentials will fail again, so back off or stop instead of reconnecting in a loop.
+
 ## Liveness
 
 The server pings every few seconds. `receive` raises `PingTimeout` (a `TimeoutError`) when no ping has arrived for `ping_deadline` seconds, 60 by default. Pass `ping_deadline=None` to `connect` to turn this off. A closed socket raises the `websockets` exception as is.
+
+## Protocol coverage
+
+The client offers the `actioncable-v1-json` subprotocol and implements all of it: `subscribe`, `unsubscribe` and `message` commands, and `welcome`, `ping`, `confirm_subscription`, `reject_subscription`, `disconnect` and channel messages from the server.
+
+The AnyCable extensions (`actioncable-v1-ext-json`) are not implemented: message history and stream offsets, session restore, `pong`, `whisper` and presence. Neither are the binary encodings (msgpack, protobuf). Frames that carry extra fields still decode, and the extra fields are ignored.
 
 ## Testing
 

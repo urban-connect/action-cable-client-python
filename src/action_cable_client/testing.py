@@ -5,7 +5,7 @@ from queue import Queue
 from websockets.exceptions import ConnectionClosed
 from websockets.sync.server import serve
 
-from action_cable_client.protocol import Identifier
+from action_cable_client.protocol import SUBPROTOCOL, Identifier
 
 # A tiny ActionCable server for tests. It welcomes every client, confirms (or
 # rejects) subscriptions and records every frame the client sends. It runs in
@@ -17,9 +17,10 @@ class FakeCable:
     self.reject = reject or []
     self.received: Queue = Queue()
     self.requests: Queue = Queue()
+    self.subprotocols: Queue = Queue()
     self.subscribed = threading.Event()
     self._clients: list = []
-    self._server = serve(self._session, "127.0.0.1", 0)
+    self._server = serve(self._session, "127.0.0.1", 0, subprotocols=[SUBPROTOCOL])
     self.port = self._server.socket.getsockname()[1]
     self.url = f"ws://127.0.0.1:{self.port}/cable"
 
@@ -28,6 +29,7 @@ class FakeCable:
   def _session(self, websocket) -> None:
     self._clients.append(websocket)
     self.requests.put(websocket.request.path)
+    self.subprotocols.put(websocket.subprotocol)
 
     websocket.send(json.dumps({"type": "welcome", "sid": "fake"}))
 

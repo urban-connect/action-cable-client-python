@@ -34,6 +34,11 @@ class TestIdentifier:
   def test_different_params_are_different_identifiers(self):
     assert Identifier("ChatChannel", room_id=2) != ROOM
 
+  def test_params_may_shadow_argument_names(self):
+    raw = '{"channel": "ChatChannel", "self": 1, "cls": 2}'
+
+    assert Identifier.decode(raw).params == {"self": 1, "cls": 2}
+
   def test_usable_as_dict_key(self):
     handlers = {ROOM: "room 1"}
 
@@ -107,6 +112,12 @@ class TestDecode:
   def test_unknown_type_is_unknown(self):
     assert isinstance(protocol.decode('{"type": "mystery"}'), Unknown)
 
+  def test_absurdly_nested_frame_is_unknown(self):
+    assert isinstance(protocol.decode("[" * 200000), Unknown)
+
+    frame = '{"identifier": "{}", "message": ' + "[" * 200000 + "}"
+    assert isinstance(protocol.decode(frame), Unknown)
+
   def test_broken_identifier_is_unknown(self):
     frame = '{"type": "confirm_subscription", "identifier": "not json"}'
 
@@ -123,6 +134,11 @@ class TestAuthenticatedUrl:
     url = protocol.authenticated_url("wss://ws.example.com/cable?a=1", "secret")
 
     assert url == "wss://ws.example.com/cable?a=1&token=secret"
+
+  def test_escapes_the_token(self):
+    url = protocol.authenticated_url("wss://ws.example.com/cable", "a&b=c#d e+f")
+
+    assert url == "wss://ws.example.com/cable?token=a%26b%3Dc%23d%20e%2Bf"
 
   def test_without_token(self):
     url = protocol.authenticated_url("wss://ws.example.com/cable", None)

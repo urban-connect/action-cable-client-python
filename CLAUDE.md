@@ -28,7 +28,7 @@ CI (GitHub Actions) runs Ruff and pytest on every PR, and both checks are requir
 
 The package lives in `src/action_cable_client/`:
 
-- `protocol.py` — the wire protocol without any I/O: `Identifier`, the functions that build client frames (`subscribe`, `unsubscribe`, `perform`) and `decode`, which turns a server frame into a typed event. `decode` never raises; a frame it cannot parse comes back as `Unknown`.
+- `protocol.py` — the wire protocol without any I/O: `Identifier`, the functions that build client frames (`subscribe`, `unsubscribe`, `perform`), `decode`, which turns a server frame into a typed event, and the two handshake helpers `authenticated_url` and `check_subprotocol`. `decode` never raises; a frame it cannot parse comes back as `Unknown`.
 - `aio.py` — the asyncio transport.
 - `sync.py` — the blocking transport for threaded programs.
 - `testing.py` — `FakeCable`, a small ActionCable server that consumers and this repository's own tests connect to.
@@ -47,12 +47,12 @@ Both transports wrap one websocket and expose the same operations (`subscribe`, 
 
 ## Releases
 
-Consumers install the package from git, pinned to a tag. A release is a version bump in `pyproject.toml` merged to `main`, followed by a `vX.Y.Z` tag on that commit. Never move or delete a published tag.
+Consumers install the package from git, pinned to a tag. A release is one pull request that bumps the version in `pyproject.toml`, runs `uv lock` (the lock records the package's own version and CI installs with `--locked`) and updates the tag in the README install example. Once it is merged to `main`, tag that commit `vX.Y.Z`. Never move or delete a published tag.
 
 ## Key Conventions
 
 - Python 3.10+ (uses `match`/`case` and `X | Y` type unions)
 - Two-space indentation, enforced by Ruff
 - `websockets` is the only runtime dependency; do not add others without a strong reason
-- Every change to the protocol or a transport comes with a test; transport tests run against `FakeCable`, not mocks
+- Every change to the protocol or a transport comes with a test; transport tests run against a real local server: `FakeCable`, or a plain `websockets` server when the test needs a server that misbehaves
 - Whatever one transport gains, the other gains too

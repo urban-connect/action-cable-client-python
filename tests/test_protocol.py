@@ -153,6 +153,8 @@ class TestAuthenticatedUrl:
       "wss://h/cable#x",
       "wss:///cable",
       "wss://user@example.com/cable",
+      "wss://h/cable#",
+      "wss://h/cable?a=1#",
     )
 
     for url in urls:
@@ -160,6 +162,7 @@ class TestAuthenticatedUrl:
         protocol.authenticated_url(url, "secret")
 
       assert "secret" not in str(error.value)
+      assert error.value.__context__ is None
 
   def test_without_token(self):
     url = protocol.authenticated_url("wss://ws.example.com/cable", None)

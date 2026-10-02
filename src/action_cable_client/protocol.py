@@ -198,13 +198,17 @@ def authenticated_url(url: str, token: str | None) -> str:
   if not token:
     return url
 
-  # Checked here, with the same parser the connection uses, because websockets
-  # quotes the whole URL in its own error and by then the token is part of it.
-  try:
-    parse_uri(url)
-  except InvalidURI as error:
-    raise ValueError(str(error)) from None
-
   separator = "&" if "?" in url else "?"
+  authenticated = f"{url}{separator}token={quote(token, safe='')}"
 
-  return f"{url}{separator}token={quote(token, safe='')}"
+  # Checked on the finished URL, with the same parser the connection uses,
+  # because websockets quotes the whole URL in its own error. Raised outside
+  # the handler so that error, which carries the token, is not kept as context.
+  try:
+    parse_uri(authenticated)
+  except InvalidURI as error:
+    reason = error.msg
+  else:
+    return authenticated
+
+  raise ValueError(f"{url!r} isn't a valid URI: {reason}")

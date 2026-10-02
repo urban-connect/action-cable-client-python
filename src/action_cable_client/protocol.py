@@ -1,6 +1,10 @@
 import json
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import quote
+
+from websockets.exceptions import InvalidURI
+from websockets.uri import parse_uri
 
 # The ActionCable wire protocol, without any I/O.
 #
@@ -15,6 +19,17 @@ from typing import Any
 
 PING_DEADLINE_SECONDS = 60.0
 
+# Offered during the websocket handshake, the same way the official client does.
+SUBPROTOCOL = "actioncable-v1-json"
+
+
+class PingTimeout(TimeoutError):
+  """The server has not pinged for longer than the ping deadline."""
+
+
+class ProtocolError(Exception):
+  """The server on the other end does not speak ActionCable."""
+
 
 class Identifier:
   """Names one channel subscription: the channel class plus its params.
@@ -23,7 +38,10 @@ class Identifier:
   so identifiers are compared by content, not by their JSON spelling.
   """
 
-  def __init__(self, channel: str, **params: Any):
+  def __init__(self, channel: str, /, **params: Any):
+    if "channel" in params:
+      raise ValueError("`channel` is the first argument and cannot also be a param")
+
     self.channel = channel
     self.params = params
 
@@ -155,15 +173,42 @@ def decode(raw: str | bytes) -> Event:
         return Message(Identifier.decode(data["identifier"]), data["message"])
       case _:
         return Unknown(text)
-  except (ValueError, KeyError, TypeError, AttributeError):
+  except (ValueError, KeyError, TypeError, AttributeError, RecursionError):
+    # RecursionError: json.loads gives up on absurdly nested input.
     return Unknown(text)
 
 
+def check_subprotocol(websocket, offered: list[str]) -> None:
+  """Refuse a server that did not pick the ActionCable subprotocol.
+
+  Only applies when the default was offered; a caller who passes their own
+  `subprotocols` has taken the negotiation over.
+  """
+  if offered == [SUBPROTOCOL] and websocket.subprotocol != SUBPROTOCOL:
+    raise ProtocolError(f"server did not accept the {SUBPROTOCOL} subprotocol")
+
+
 def authenticated_url(url: str, token: str | None) -> str:
-  """Append an access token to the URL as the `token` query parameter."""
+  """Append an access token to the URL as the `token` query parameter.
+
+  The token ends up in the request line, so it shows in the access logs of the
+  server and of every proxy on the way. Prefer a header where the server
+  accepts one, and never use this over plain `ws://` outside of tests.
+  """
   if not token:
     return url
 
   separator = "&" if "?" in url else "?"
+  authenticated = f"{url}{separator}token={quote(token, safe='')}"
 
-  return f"{url}{separator}token={token}"
+  # Checked on the finished URL, with the same parser the connection uses,
+  # because websockets quotes the whole URL in its own error. Raised outside
+  # the handler so that error, which carries the token, is not kept as context.
+  try:
+    parse_uri(authenticated)
+  except InvalidURI as error:
+    reason = error.msg
+  else:
+    return authenticated
+
+  raise ValueError(f"{url!r} isn't a valid URI: {reason}")

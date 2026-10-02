@@ -1,6 +1,10 @@
 import json
+import threading
+import time
 
 import pytest
+from websockets.exceptions import ConnectionClosedOK
+from websockets.sync.server import serve
 
 from action_cable_client import sync
 from action_cable_client.protocol import (
@@ -9,6 +13,7 @@ from action_cable_client.protocol import (
   Identifier,
   Message,
   Ping,
+  ProtocolError,
   RejectSubscription,
   Welcome,
 )
@@ -29,6 +34,15 @@ def test_connects_with_token(cable):
     assert connection.receive(timeout=5) == Welcome(sid="fake")
 
   assert cable.requests.get(timeout=5) == "/cable?token=secret"
+
+
+def test_offers_the_action_cable_subprotocol(cable):
+  with sync.connect(cable.url) as connection:
+    connection.receive(timeout=5)
+
+    assert connection.websocket.subprotocol == "actioncable-v1-json"
+
+  assert cable.subprotocols.get(timeout=5) == "actioncable-v1-json"
 
 
 def test_subscription_is_confirmed(cable):
@@ -96,6 +110,46 @@ def test_ping_timeout_without_receive_timeout(cable):
 
     with pytest.raises(sync.PingTimeout):
       connection.receive()
+
+
+def test_buffered_pings_count_after_a_slow_caller(cable):
+  with sync.connect(cable.url, ping_deadline=0.5) as connection:
+    connection.receive(timeout=5)
+
+    for _ in range(3):
+      time.sleep(0.25)
+      cable.ping()
+
+    time.sleep(0.1)
+
+    assert isinstance(connection.receive(timeout=1), Ping)
+    assert isinstance(connection.receive(timeout=1), Ping)
+
+
+def test_refuses_a_server_without_the_subprotocol():
+  def session(websocket):
+    websocket.send('{"type": "welcome"}')
+
+  with serve(session, "127.0.0.1", 0) as server:
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"ws://127.0.0.1:{server.socket.getsockname()[1]}/cable"
+
+    with pytest.raises(ProtocolError), sync.connect(url):
+      pass
+
+    with sync.connect(url, subprotocols=None) as connection:
+      assert connection.receive(timeout=5) == Welcome()
+
+    server.shutdown()
+
+
+def test_clean_close_raises(cable):
+  with sync.connect(cable.url) as connection:
+    connection.receive(timeout=5)
+    cable.close_clients()
+
+    with pytest.raises(ConnectionClosedOK):
+      connection.receive(timeout=5)
 
 
 def test_ping_pushes_the_deadline(cable):

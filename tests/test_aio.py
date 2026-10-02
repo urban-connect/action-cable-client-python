@@ -1,8 +1,10 @@
 import asyncio
 import json
+import threading
 from unittest.mock import AsyncMock
 
 import pytest
+from websockets.sync.server import serve
 
 from action_cable_client import aio
 from action_cable_client.protocol import (
@@ -11,6 +13,7 @@ from action_cable_client.protocol import (
   Identifier,
   Message,
   Ping,
+  ProtocolError,
   RejectSubscription,
   Welcome,
 )
@@ -31,6 +34,15 @@ async def test_connects_with_token(cable):
     assert await connection.receive() == Welcome(sid="fake")
 
   assert cable.requests.get(timeout=5) == "/cable?token=secret"
+
+
+async def test_offers_the_action_cable_subprotocol(cable):
+  async with aio.connect(cable.url) as connection:
+    await connection.receive()
+
+    assert connection.websocket.subprotocol == "actioncable-v1-json"
+
+  assert cable.subprotocols.get(timeout=5) == "actioncable-v1-json"
 
 
 async def test_subscription_is_confirmed(cable):
@@ -91,6 +103,48 @@ async def test_ping_timeout_when_server_is_silent(cable):
 
     with pytest.raises(aio.PingTimeout):
       await connection.receive()
+
+
+async def test_buffered_pings_count_after_a_slow_caller(cable):
+  async with aio.connect(cable.url, ping_deadline=0.5) as connection:
+    await connection.receive()
+
+    for _ in range(3):
+      await asyncio.sleep(0.25)
+      cable.ping()
+
+    await asyncio.sleep(0.1)
+
+    assert isinstance(await connection.receive(), Ping)
+    assert isinstance(await connection.receive(), Ping)
+
+
+async def test_refuses_a_server_without_the_subprotocol():
+  def session(websocket):
+    websocket.send('{"type": "welcome"}')
+
+  with serve(session, "127.0.0.1", 0) as server:
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"ws://127.0.0.1:{server.socket.getsockname()[1]}/cable"
+
+    with pytest.raises(ProtocolError):
+      async with aio.connect(url):
+        pass
+
+    server.shutdown()
+
+
+async def test_iteration_ends_on_a_clean_close(cable):
+  events = []
+
+  async with aio.connect(cable.url) as connection:
+    async for event in connection:
+      events.append(event)
+
+      # Off the event loop: closing waits for this client to answer.
+      await asyncio.get_running_loop().run_in_executor(None, cable.close_clients)
+
+  assert events == [Welcome(sid="fake")]
 
 
 async def test_ping_pushes_the_deadline(cable):

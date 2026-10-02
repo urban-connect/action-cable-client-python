@@ -147,7 +147,15 @@ class TestAuthenticatedUrl:
     assert url == "wss://ws.example.com/cable?token=a%26b%3Dc%23d%20e%2Bf"
 
   def test_rejected_url_does_not_carry_the_token(self):
-    for url in ("example.com/cable", "https://example.com/cable", "wss://h/cable#x"):
+    urls = (
+      "example.com/cable",
+      "https://example.com/cable",
+      "wss://h/cable#x",
+      "wss:///cable",
+      "wss://user@example.com/cable",
+    )
+
+    for url in urls:
       with pytest.raises(ValueError) as error:
         protocol.authenticated_url(url, "secret")
 

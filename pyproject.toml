@@ -7,7 +7,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = [
-    "websockets>=14",
+    "websockets>=14.2",
 ]
 
 [dependency-groups]

@@ -1,7 +1,10 @@
 import json
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
+
+from websockets.exceptions import InvalidURI
+from websockets.uri import parse_uri
 
 # The ActionCable wire protocol, without any I/O.
 #
@@ -195,12 +198,12 @@ def authenticated_url(url: str, token: str | None) -> str:
   if not token:
     return url
 
-  parts = urlsplit(url)
-
-  # Checked here because websockets quotes the whole URL in its own error,
-  # and by then the token would be part of it.
-  if parts.scheme not in ("ws", "wss") or parts.fragment:
-    raise ValueError(f"{url!r} is not a ws:// or wss:// URL without a fragment")
+  # Checked here, with the same parser the connection uses, because websockets
+  # quotes the whole URL in its own error and by then the token is part of it.
+  try:
+    parse_uri(url)
+  except InvalidURI as error:
+    raise ValueError(str(error)) from None
 
   separator = "&" if "?" in url else "?"
 

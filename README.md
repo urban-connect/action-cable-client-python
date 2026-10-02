@@ -87,9 +87,11 @@ Identifiers compare by content, so the identifier of an incoming `Message` can b
 
 A server that refuses a connection answers with `Disconnect` before closing the socket. When its `reconnect` is false (for example `reason="unauthorized"`), retrying with the same credentials will fail again, so back off or stop instead of reconnecting in a loop.
 
+`connect` raises `ProtocolError` when the server does not accept the `actioncable-v1-json` subprotocol, unless you pass your own `subprotocols`.
+
 ## Liveness
 
-The server pings every few seconds. `receive` raises `PingTimeout` (a `TimeoutError`) when no ping has arrived for `ping_deadline` seconds, 60 by default. Pass `ping_deadline=None` to `connect` to turn this off. A closed socket raises the `websockets` exception as is.
+The server pings every few seconds. `receive` raises `PingTimeout` (a `TimeoutError`) when no ping has arrived for `ping_deadline` seconds, 60 by default. Pass `ping_deadline=None` to `connect` to turn this off. A closed socket raises the `websockets` exception as is, with one exception: `async for` over an asyncio connection ends without an error when the server closes the socket cleanly, so wrap it in your own reconnect loop.
 
 ## Protocol coverage
 

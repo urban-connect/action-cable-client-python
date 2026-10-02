@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from action_cable_client import protocol
 from action_cable_client.protocol import (
   ConfirmSubscription,
@@ -38,6 +40,10 @@ class TestIdentifier:
     raw = '{"channel": "ChatChannel", "self": 1, "cls": 2}'
 
     assert Identifier.decode(raw).params == {"self": 1, "cls": 2}
+
+  def test_channel_cannot_be_a_param(self):
+    with pytest.raises(ValueError):
+      Identifier("ChatChannel", channel="OtherChannel")
 
   def test_usable_as_dict_key(self):
     handlers = {ROOM: "room 1"}
@@ -139,6 +145,13 @@ class TestAuthenticatedUrl:
     url = protocol.authenticated_url("wss://ws.example.com/cable", "a&b=c#d e+f")
 
     assert url == "wss://ws.example.com/cable?token=a%26b%3Dc%23d%20e%2Bf"
+
+  def test_rejected_url_does_not_carry_the_token(self):
+    for url in ("example.com/cable", "https://example.com/cable", "wss://h/cable#x"):
+      with pytest.raises(ValueError) as error:
+        protocol.authenticated_url(url, "secret")
+
+      assert "secret" not in str(error.value)
 
   def test_without_token(self):
     url = protocol.authenticated_url("wss://ws.example.com/cable", None)

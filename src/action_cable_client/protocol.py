@@ -1,7 +1,7 @@
 import json
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 # The ActionCable wire protocol, without any I/O.
 #
@@ -24,6 +24,10 @@ class PingTimeout(TimeoutError):
   """The server has not pinged for longer than the ping deadline."""
 
 
+class ProtocolError(Exception):
+  """The server on the other end does not speak ActionCable."""
+
+
 class Identifier:
   """Names one channel subscription: the channel class plus its params.
 
@@ -32,6 +36,9 @@ class Identifier:
   """
 
   def __init__(self, channel: str, /, **params: Any):
+    if "channel" in params:
+      raise ValueError("`channel` is the first argument and cannot also be a param")
+
     self.channel = channel
     self.params = params
 
@@ -168,6 +175,16 @@ def decode(raw: str | bytes) -> Event:
     return Unknown(text)
 
 
+def check_subprotocol(websocket, offered: list[str]) -> None:
+  """Refuse a server that did not pick the ActionCable subprotocol.
+
+  Only applies when the default was offered; a caller who passes their own
+  `subprotocols` has taken the negotiation over.
+  """
+  if offered == [SUBPROTOCOL] and websocket.subprotocol != SUBPROTOCOL:
+    raise ProtocolError(f"server did not accept the {SUBPROTOCOL} subprotocol")
+
+
 def authenticated_url(url: str, token: str | None) -> str:
   """Append an access token to the URL as the `token` query parameter.
 
@@ -177,6 +194,13 @@ def authenticated_url(url: str, token: str | None) -> str:
   """
   if not token:
     return url
+
+  parts = urlsplit(url)
+
+  # Checked here because websockets quotes the whole URL in its own error,
+  # and by then the token would be part of it.
+  if parts.scheme not in ("ws", "wss") or parts.fragment:
+    raise ValueError(f"{url!r} is not a ws:// or wss:// URL without a fragment")
 
   separator = "&" if "?" in url else "?"
 

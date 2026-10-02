@@ -63,6 +63,11 @@ class FakeCable:
   def disconnect(self, reason: str = "server_restart", reconnect: bool = True) -> None:
     self._send_all({"type": "disconnect", "reason": reason, "reconnect": reconnect})
 
+  def close_clients(self) -> None:
+    """Close every connection cleanly, the way a server shutting down does."""
+    for websocket in list(self._clients):
+      websocket.close()
+
   def stop(self) -> None:
     self._server.shutdown()
 
